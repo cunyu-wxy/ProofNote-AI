@@ -7,9 +7,12 @@
     "dev": "pnpm --filter @proofnote/web dev",
     "build": "pnpm --filter @proofnote/web build",
     "hardhat": "hardhat",
-    "compile": "hardhat compile"
+    "compile": "hardhat compile",
+    "deploy:og": "hardhat run scripts/deploy-proofnote-registry.js --network ogGalileo"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.1.2",
+    "dotenv": "^17.4.2",
     "hardhat": "^2.22.19"
   }
 }

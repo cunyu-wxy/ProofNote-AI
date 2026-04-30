@@ -18,6 +18,12 @@ import {
   StorageUploadReceipt,
   uploadProofNoteArtifacts
 } from "../lib/og/storage";
+import {
+  buildExplorerAddressUrl,
+  readConfiguredRegistryAddress,
+  recordReportOnChain,
+  RegistryRecordReceipt
+} from "../lib/og/registry";
 
 const maxPreviewLength = 1400;
 
@@ -34,8 +40,13 @@ export default function Home() {
   const [storageMessage, setStorageMessage] = useState("Not uploaded");
   const [storageReceipt, setStorageReceipt] =
     useState<StorageUploadReceipt | null>(null);
+  const [registryMessage, setRegistryMessage] = useState("Not recorded");
+  const [registryReceipt, setRegistryReceipt] =
+    useState<RegistryRecordReceipt | null>(null);
 
   const hasSource = sourceText.trim().length > 0;
+  const registryContractAddress =
+    registryReceipt?.contractAddress || readConfiguredRegistryAddress();
   const reportJson = useMemo(() => {
     if (!generatedReport) {
       return "";
@@ -68,6 +79,8 @@ export default function Home() {
       setGeneratedReport(null);
       setStorageReceipt(null);
       setStorageMessage("Not uploaded");
+      setRegistryReceipt(null);
+      setRegistryMessage("Not recorded");
       setStatusMessage("Unsupported file");
       setErrorMessage("Please upload a .txt or .md file.");
       event.target.value = "";
@@ -80,6 +93,8 @@ export default function Home() {
     setGeneratedReport(null);
     setStorageReceipt(null);
     setStorageMessage("Not uploaded");
+    setRegistryReceipt(null);
+    setRegistryMessage("Not recorded");
     setStatusMessage("Source ready");
   }
 
@@ -94,6 +109,8 @@ export default function Home() {
     setStatusMessage("Generating report");
     setStorageReceipt(null);
     setStorageMessage("Not uploaded");
+    setRegistryReceipt(null);
+    setRegistryMessage("Not recorded");
     setErrorMessage("");
 
     try {
@@ -123,10 +140,13 @@ export default function Home() {
       setGeneratedReport(payload);
       setStorageReceipt(null);
       setStorageMessage("Ready to upload");
+      setRegistryReceipt(null);
+      setRegistryMessage("Not recorded");
       setStatusMessage("Report generated");
     } catch (error) {
       setGeneratedReport(null);
       setStorageReceipt(null);
+      setRegistryReceipt(null);
       setStatusMessage("Generation failed");
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -144,6 +164,10 @@ export default function Home() {
     setErrorMessage("");
     setStorageReceipt(null);
     setStorageMessage("Preparing wallet");
+    setRegistryReceipt(null);
+    setRegistryMessage("Not recorded");
+
+    let storageUploaded = false;
 
     try {
       // Data flow: source/report content is already in browser memory; this
@@ -156,10 +180,29 @@ export default function Home() {
       });
 
       setStorageReceipt(receipt);
+      storageUploaded = true;
       setStorageMessage("Uploaded to 0G Storage");
-      setStatusMessage("Storage upload complete");
+      setRegistryMessage("Waiting for wallet transaction");
+      setStatusMessage("Recording on chain");
+
+      // Current MVP uses the uploaded report JSON root as metadataRootHash
+      // until a separate metadata artifact is introduced.
+      const onChainReceipt = await recordReportOnChain({
+        title: generatedReport.title,
+        sourceRootHash: receipt.sourceRootHash,
+        reportRootHash: receipt.reportRootHash,
+        metadataRootHash: receipt.reportRootHash
+      });
+
+      setRegistryReceipt(onChainReceipt);
+      setRegistryMessage("Recorded on chain");
+      setStatusMessage("Proof recorded");
     } catch (error) {
-      setStorageMessage("Upload failed");
+      if (!storageUploaded) {
+        setStorageMessage("Upload failed");
+      } else {
+        setRegistryMessage("Record failed");
+      }
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsUploading(false);
@@ -341,10 +384,12 @@ export default function Home() {
                     <ProofField
                       label="Source tx hash"
                       value={storageReceipt.sourceTxHash}
+                      href={buildExplorerTxUrl(storageReceipt.sourceTxHash)}
                     />
                     <ProofField
                       label="Report tx hash"
                       value={storageReceipt.reportTxHash}
+                      href={buildExplorerTxUrl(storageReceipt.reportTxHash)}
                     />
                   </div>
                 ) : null}
@@ -356,8 +401,38 @@ export default function Home() {
                   disabled={!generatedReport || isUploading}
                 >
                   <Upload className="h-4 w-4" aria-hidden="true" />
-                  {isUploading ? "Uploading..." : "Upload source and report"}
+                  {isUploading ? "Publishing..." : "Upload and record proof"}
                 </button>
+              </aside>
+
+              <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Database className="h-5 w-5 text-teal-700" aria-hidden="true" />
+                  <h2 className="text-lg font-semibold">On-chain Record</h2>
+                </div>
+
+                <div className="mt-5 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+                  {registryMessage}
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <ProofField
+                    label="Contract address"
+                    value={registryContractAddress || "Not configured"}
+                    href={
+                      registryContractAddress
+                        ? buildExplorerAddressUrl(registryContractAddress)
+                        : ""
+                    }
+                  />
+                  {registryReceipt ? (
+                    <ProofField
+                      label="Registry tx hash"
+                      value={registryReceipt.transactionHash}
+                      href={buildExplorerTxUrl(registryReceipt.transactionHash)}
+                    />
+                  ) : null}
+                </div>
               </aside>
             </div>
           </section>
@@ -400,19 +475,25 @@ function RiskBadge({ level }: { level: RiskLevel }) {
   );
 }
 
-function ProofField({ label, value }: { label: string; value: string }) {
-  const txUrl = /tx hash/i.test(label) ? buildExplorerTxUrl(value) : "";
-
+function ProofField({
+  label,
+  value,
+  href
+}: {
+  label: string;
+  value: string;
+  href?: string;
+}) {
   return (
     <div className="rounded-md bg-slate-50 p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
           {label}
         </p>
-        {txUrl ? (
+        {href ? (
           <a
             className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-blue-600 hover:text-blue-700"
-            href={txUrl}
+            href={href}
             rel="noreferrer"
             target="_blank"
             aria-label={`Open ${label}`}

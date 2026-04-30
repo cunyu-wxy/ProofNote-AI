@@ -80,6 +80,14 @@ Compile contracts:
 pnpm hardhat compile
 ```
 
+Deploy `ProofNoteRegistry` to 0G Chain:
+
+```bash
+DEPLOYER_PRIVATE_KEY=0x... pnpm deploy:og
+```
+
+After deployment, set the printed address as `NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS` in `apps/web/.env.local`.
+
 ## Smart Contract
 
 `ProofNoteRegistry` stores report metadata on chain:
