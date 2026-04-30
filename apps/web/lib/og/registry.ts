@@ -13,6 +13,15 @@ export type RegistryRecordReceipt = {
   contractAddress: string;
 };
 
+export type RegistryReport = {
+  owner: string;
+  title: string;
+  sourceRootHash: string;
+  reportRootHash: string;
+  metadataRootHash: string;
+  createdAt: bigint;
+};
+
 type RegistryTransaction = {
   hash: string;
   wait: () => Promise<{
@@ -28,6 +37,24 @@ type ProofNoteRegistryContract = {
     reportRootHash: string,
     metadataRootHash: string
   ) => Promise<RegistryTransaction>;
+  getReport: (id: bigint) => Promise<
+    | [
+        string,
+        string,
+        string,
+        string,
+        string,
+        bigint
+      ]
+    | {
+        owner: string;
+        title: string;
+        sourceRootHash: string;
+        reportRootHash: string;
+        metadataRootHash: string;
+        createdAt: bigint;
+      }
+  >;
 };
 
 // Data flow: storage upload returns public root hashes, then this browser-only
@@ -82,6 +109,24 @@ export function readConfiguredRegistryAddress() {
   return process.env.NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS?.trim() ?? "";
 }
 
+export async function getReportFromChain(id: bigint): Promise<RegistryReport> {
+  const { Contract, JsonRpcProvider, isAddress } = await import("ethers");
+  const contractAddress = readRegistryAddress(isAddress);
+  const rpcUrl = readConfiguredRpcUrl();
+  const provider = new JsonRpcProvider(rpcUrl);
+  const registry = new Contract(
+    contractAddress,
+    proofNoteRegistryAbi,
+    provider
+  ) as unknown as ProofNoteRegistryContract;
+
+  try {
+    return normalizeRegistryReport(await registry.getReport(id));
+  } catch (error) {
+    throw new Error(`Failed to read report #${id.toString()}: ${readErrorMessage(error)}`);
+  }
+}
+
 export function buildExplorerAddressUrl(address: string) {
   const explorerUrl = process.env.NEXT_PUBLIC_OG_EXPLORER_URL?.trim();
 
@@ -90,6 +135,23 @@ export function buildExplorerAddressUrl(address: string) {
   }
 
   return `${explorerUrl.replace(/\/$/, "")}/address/${address}`;
+}
+
+export function buildStorageRootUrl(rootHash: string) {
+  const storageExplorerUrl =
+    process.env.NEXT_PUBLIC_OG_STORAGE_EXPLORER_URL?.trim();
+
+  if (!storageExplorerUrl) {
+    return "";
+  }
+
+  const normalizedUrl = storageExplorerUrl.replace(/\/$/, "");
+
+  if (/\/(file|root|object|hash)$/i.test(normalizedUrl)) {
+    return `${normalizedUrl}/${rootHash}`;
+  }
+
+  return `${normalizedUrl}/file/${rootHash}`;
 }
 
 function readRegistryAddress(isAddress: (value: string) => boolean) {
@@ -106,6 +168,49 @@ function readRegistryAddress(isAddress: (value: string) => boolean) {
   }
 
   return contractAddress;
+}
+
+function readConfiguredRpcUrl() {
+  const rpcUrl = process.env.NEXT_PUBLIC_OG_RPC_URL?.trim();
+
+  if (!rpcUrl) {
+    throw new Error("Set NEXT_PUBLIC_OG_RPC_URL before verifying reports.");
+  }
+
+  return rpcUrl;
+}
+
+function normalizeRegistryReport(
+  report:
+    | [
+        string,
+        string,
+        string,
+        string,
+        string,
+        bigint
+      ]
+    | {
+        owner: string;
+        title: string;
+        sourceRootHash: string;
+        reportRootHash: string;
+        metadataRootHash: string;
+        createdAt: bigint;
+      }
+): RegistryReport {
+  if (Array.isArray(report)) {
+    return {
+      owner: report[0],
+      title: report[1],
+      sourceRootHash: report[2],
+      reportRootHash: report[3],
+      metadataRootHash: report[4],
+      createdAt: report[5]
+    };
+  }
+
+  return report;
 }
 
 function getInjectedEthereum(): Eip1193Provider {

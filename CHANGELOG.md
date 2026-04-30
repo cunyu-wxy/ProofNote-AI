@@ -10,6 +10,7 @@
 - Connected the app flow so successful 0G Storage uploads are recorded on chain.
 - Added UI fields for registry transaction hash, contract address, and explorer links.
 - Added clear wallet rejection handling for on-chain transactions.
+- Added `/verify` page for reading and validating `ProofNoteRegistry.getReport(id)`.
 
 ### Changed
 

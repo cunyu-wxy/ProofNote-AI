@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -225,6 +226,12 @@ export default function Home() {
             <CheckCircle2 className="h-4 w-4 text-teal-700" aria-hidden="true" />
             {statusMessage}
           </div>
+          <Link
+            className="inline-flex w-fit items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-600 hover:text-blue-900"
+            href="/verify"
+          >
+            Verify report
+          </Link>
         </header>
 
         <section className="grid gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
