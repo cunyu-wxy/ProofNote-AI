@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+dist
+artifacts
+cache
+coverage
+.env
+.env.local
+apps/web/.env.local
+*.log
+*.tsbuildinfo
