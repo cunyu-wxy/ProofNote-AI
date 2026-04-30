@@ -4,6 +4,8 @@ import { ChangeEvent, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Database,
+  ExternalLink,
   FileText,
   ListChecks,
   ShieldCheck,
@@ -11,6 +13,11 @@ import {
   Wand2
 } from "lucide-react";
 import { GeneratedReport, isGeneratedReport, RiskLevel } from "../lib/report";
+import {
+  buildExplorerTxUrl,
+  StorageUploadReceipt,
+  uploadProofNoteArtifacts
+} from "../lib/og/storage";
 
 const maxPreviewLength = 1400;
 
@@ -23,6 +30,10 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState("Waiting for upload");
   const [errorMessage, setErrorMessage] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [storageMessage, setStorageMessage] = useState("Not uploaded");
+  const [storageReceipt, setStorageReceipt] =
+    useState<StorageUploadReceipt | null>(null);
 
   const hasSource = sourceText.trim().length > 0;
   const reportJson = useMemo(() => {
@@ -55,6 +66,8 @@ export default function Home() {
       setFileName("");
       setSourceText("");
       setGeneratedReport(null);
+      setStorageReceipt(null);
+      setStorageMessage("Not uploaded");
       setStatusMessage("Unsupported file");
       setErrorMessage("Please upload a .txt or .md file.");
       event.target.value = "";
@@ -65,6 +78,8 @@ export default function Home() {
     setFileName(selectedFile.name);
     setSourceText(text);
     setGeneratedReport(null);
+    setStorageReceipt(null);
+    setStorageMessage("Not uploaded");
     setStatusMessage("Source ready");
   }
 
@@ -77,6 +92,8 @@ export default function Home() {
 
     setIsGenerating(true);
     setStatusMessage("Generating report");
+    setStorageReceipt(null);
+    setStorageMessage("Not uploaded");
     setErrorMessage("");
 
     try {
@@ -104,13 +121,48 @@ export default function Home() {
       }
 
       setGeneratedReport(payload);
+      setStorageReceipt(null);
+      setStorageMessage("Ready to upload");
       setStatusMessage("Report generated");
     } catch (error) {
       setGeneratedReport(null);
+      setStorageReceipt(null);
       setStatusMessage("Generation failed");
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function handleUploadToStorage() {
+    if (!generatedReport) {
+      setErrorMessage("Generate a report before uploading to 0G Storage.");
+      return;
+    }
+
+    setIsUploading(true);
+    setErrorMessage("");
+    setStorageReceipt(null);
+    setStorageMessage("Preparing wallet");
+
+    try {
+      // Data flow: source/report content is already in browser memory; this
+      // call asks the wallet to sign 0G Storage uploads and returns root/tx IDs.
+      const receipt = await uploadProofNoteArtifacts({
+        title: generatedReport.title || fileName || "ProofNote report",
+        sourceText,
+        report: generatedReport,
+        onProgress: (progress) => setStorageMessage(progress.message)
+      });
+
+      setStorageReceipt(receipt);
+      setStorageMessage("Uploaded to 0G Storage");
+      setStatusMessage("Storage upload complete");
+    } catch (error) {
+      setStorageMessage("Upload failed");
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsUploading(false);
     }
   }
 
@@ -255,15 +307,59 @@ export default function Home() {
               )}
             </div>
 
-            <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-violet-700" aria-hidden="true" />
-                <h2 className="text-lg font-semibold">Report JSON</h2>
-              </div>
-              <pre className="mt-5 min-h-96 overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
-                {reportJson || "{\n  \"title\": \"\",\n  \"summary\": \"\",\n  \"key_points\": [],\n  \"risks\": [],\n  \"conclusion\": \"\"\n}"}
-              </pre>
-            </aside>
+            <div className="space-y-5">
+              <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-violet-700" aria-hidden="true" />
+                  <h2 className="text-lg font-semibold">Report JSON</h2>
+                </div>
+                <pre className="mt-5 min-h-72 overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+                  {reportJson || "{\n  \"title\": \"\",\n  \"summary\": \"\",\n  \"key_points\": [],\n  \"risks\": [],\n  \"conclusion\": \"\"\n}"}
+                </pre>
+              </aside>
+
+              <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Database className="h-5 w-5 text-blue-700" aria-hidden="true" />
+                  <h2 className="text-lg font-semibold">0G Storage</h2>
+                </div>
+
+                <div className="mt-5 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+                  {storageMessage}
+                </div>
+
+                {storageReceipt ? (
+                  <div className="mt-4 space-y-3">
+                    <ProofField
+                      label="Source root hash"
+                      value={storageReceipt.sourceRootHash}
+                    />
+                    <ProofField
+                      label="Report root hash"
+                      value={storageReceipt.reportRootHash}
+                    />
+                    <ProofField
+                      label="Source tx hash"
+                      value={storageReceipt.sourceTxHash}
+                    />
+                    <ProofField
+                      label="Report tx hash"
+                      value={storageReceipt.reportTxHash}
+                    />
+                  </div>
+                ) : null}
+
+                <button
+                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  type="button"
+                  onClick={handleUploadToStorage}
+                  disabled={!generatedReport || isUploading}
+                >
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                  {isUploading ? "Uploading..." : "Upload source and report"}
+                </button>
+              </aside>
+            </div>
           </section>
         </section>
       </div>
@@ -301,6 +397,34 @@ function RiskBadge({ level }: { level: RiskLevel }) {
     >
       {level}
     </span>
+  );
+}
+
+function ProofField({ label, value }: { label: string; value: string }) {
+  const txUrl = /tx hash/i.test(label) ? buildExplorerTxUrl(value) : "";
+
+  return (
+    <div className="rounded-md bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+          {label}
+        </p>
+        {txUrl ? (
+          <a
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-blue-600 hover:text-blue-700"
+            href={txUrl}
+            rel="noreferrer"
+            target="_blank"
+            aria-label={`Open ${label}`}
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+      <p className="mt-2 break-all font-mono text-xs leading-5 text-slate-700">
+        {value}
+      </p>
+    </div>
   );
 }
 

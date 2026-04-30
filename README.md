@@ -49,6 +49,17 @@ cp .env.example .env
 
 Set `OPENAI_API_KEY` in `apps/web/.env.local` to enable server-side OpenAI report generation. If it is not set, `/api/generate-report` falls back to local mock report generation.
 
+The app uploads generated artifacts to 0G Storage from the browser with the connected wallet. Configure these public values in `apps/web/.env.local`:
+
+```bash
+NEXT_PUBLIC_OG_CHAIN_ID=16602
+NEXT_PUBLIC_OG_RPC_URL=https://evmrpc-testnet.0g.ai
+NEXT_PUBLIC_OG_STORAGE_INDEXER_URL=https://indexer-storage-testnet-turbo.0g.ai
+NEXT_PUBLIC_OG_EXPLORER_URL=https://chainscan-galileo.0g.ai
+```
+
+Your wallet must hold testnet A0GI for upload fees.
+
 Run the web app:
 
 ```bash
@@ -81,4 +92,6 @@ The contract emits `ReportRecorded(id, owner, title, sourceRootHash, reportRootH
 
 ## Current MVP Behavior
 
-The web app can load `.txt` and `.md` files, read the file content in the browser, send `title`, `sourceText`, and `instruction` to `POST /api/generate-report`, and display a structured report matching the schema in `PROJECT_SPEC.md`. The OpenAI API key is read only by the server route and is never exposed to the browser. Wallet connection, 0G Storage uploads, and on-chain writes are left for the next implementation phase.
+The web app can load `.txt` and `.md` files, read the file content in the browser, send `title`, `sourceText`, and `instruction` to `POST /api/generate-report`, and display a structured report matching the schema in `PROJECT_SPEC.md`. The OpenAI API key is read only by the server route and is never exposed to the browser. After report generation, the browser can upload both the original source text and report JSON to 0G Storage and display `sourceRootHash`, `reportRootHash`, `sourceTxHash`, and `reportTxHash`.
+
+On-chain registry writes are left for the next implementation phase.
