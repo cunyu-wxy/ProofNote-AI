@@ -10,7 +10,7 @@ async function main() {
 
   console.log(`Deploying ProofNoteRegistry to ${hre.network.name}`);
   console.log(`Deployer: ${deployer.address}`);
-  console.log(`Balance: ${hre.ethers.formatEther(balance)} A0GI`);
+  console.log(`Balance: ${hre.ethers.formatEther(balance)} 0G`);
 
   const ProofNoteRegistry = await hre.ethers.getContractFactory(
     "ProofNoteRegistry"
@@ -22,9 +22,7 @@ async function main() {
   const registryAddress = await registry.getAddress();
 
   console.log(`ProofNoteRegistry deployed: ${registryAddress}`);
-  console.log(
-    `Set NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS=${registryAddress} in apps/web/.env.local`
-  );
+  console.log(`Paste ${registryAddress} into the app Runtime Settings panel.`);
 }
 
 main().catch((error) => {

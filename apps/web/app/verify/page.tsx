@@ -12,11 +12,11 @@ import {
 } from "lucide-react";
 import {
   buildExplorerAddressUrl,
-  buildStorageRootUrl,
   getReportFromChain,
-  readConfiguredRegistryAddress,
   RegistryReport
 } from "../../lib/og/registry";
+import { isEvmAddressLike } from "../../lib/runtimeConfig";
+import { useRuntimeConfig } from "../../lib/useRuntimeConfig";
 
 export default function VerifyPage() {
   const [reportId, setReportId] = useState("");
@@ -24,7 +24,10 @@ export default function VerifyPage() {
   const [statusMessage, setStatusMessage] = useState("Ready");
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const contractAddress = readConfiguredRegistryAddress();
+  const { runtimeConfig, updateRuntimeConfig } = useRuntimeConfig();
+  const contractAddress = runtimeConfig.registryAddress.trim();
+  const contractAddressInvalid =
+    contractAddress.length > 0 && !isEvmAddressLike(contractAddress);
   const createdAtLabel = useMemo(() => {
     if (!report) {
       return "";
@@ -45,13 +48,23 @@ export default function VerifyPage() {
       return;
     }
 
+    if (!contractAddress) {
+      setReport(null);
+      setStatusMessage("Missing contract");
+      setErrorMessage("Enter the ProofNoteRegistry contract address first.");
+      return;
+    }
+
     setIsLoading(true);
     setReport(null);
     setStatusMessage("Reading registry");
     setErrorMessage("");
 
     try {
-      const registryReport = await getReportFromChain(parsedReportId);
+      const registryReport = await getReportFromChain(
+        parsedReportId,
+        contractAddress
+      );
       setReport(registryReport);
       setStatusMessage("Report found");
     } catch (error) {
@@ -93,6 +106,27 @@ export default function VerifyPage() {
 
             <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
               <label className="block text-sm font-semibold text-slate-800">
+                Registry contract
+                <input
+                  className={`mt-2 h-11 w-full rounded-md border bg-white px-3 font-mono text-xs outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4 ${
+                    contractAddressInvalid ? "border-red-300" : "border-slate-300"
+                  }`}
+                  value={runtimeConfig.registryAddress}
+                  onChange={(event) =>
+                    updateRuntimeConfig({ registryAddress: event.target.value })
+                  }
+                  placeholder="0x..."
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {contractAddressInvalid ? (
+                  <span className="mt-2 block text-xs text-red-600">
+                    Enter a valid 0x contract address.
+                  </span>
+                ) : null}
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-800">
                 Report ID
                 <input
                   className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4"
@@ -115,7 +149,7 @@ export default function VerifyPage() {
               <button
                 className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || !contractAddress || contractAddressInvalid}
               >
                 <FileSearch className="h-4 w-4" aria-hidden="true" />
                 {isLoading ? "Verifying..." : "Verify report"}
@@ -152,17 +186,14 @@ export default function VerifyPage() {
                   <Field
                     label="Source root hash"
                     value={report.sourceRootHash}
-                    href={buildStorageRootUrl(report.sourceRootHash)}
                   />
                   <Field
                     label="Report root hash"
                     value={report.reportRootHash}
-                    href={buildStorageRootUrl(report.reportRootHash)}
                   />
                   <Field
                     label="Metadata root hash"
                     value={report.metadataRootHash}
-                    href={buildStorageRootUrl(report.metadataRootHash)}
                   />
                   <Field label="Created at" value={createdAtLabel} />
                 </div>

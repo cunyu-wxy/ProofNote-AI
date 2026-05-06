@@ -6,22 +6,32 @@ import {
   AlertTriangle,
   CheckCircle2,
   Database,
+  Eye,
+  EyeOff,
   ExternalLink,
   FileText,
+  KeyRound,
   ListChecks,
+  RefreshCw,
+  Settings,
   ShieldCheck,
+  Trash2,
   Upload,
+  Wallet,
   Wand2
 } from "lucide-react";
-import { GeneratedReport, isGeneratedReport, RiskLevel } from "../lib/report";
+import { generateReportInBrowser } from "../lib/reportGenerator";
+import { GeneratedReport, RiskLevel } from "../lib/report";
+import { RuntimeConfig, isEvmAddressLike } from "../lib/runtimeConfig";
+import { useRuntimeConfig } from "../lib/useRuntimeConfig";
 import {
   buildExplorerTxUrl,
+  buildStorageSubmissionUrl,
   StorageUploadReceipt,
   uploadProofNoteArtifacts
 } from "../lib/og/storage";
 import {
   buildExplorerAddressUrl,
-  readConfiguredRegistryAddress,
   recordReportOnChain,
   RegistryRecordReceipt
 } from "../lib/og/registry";
@@ -44,10 +54,16 @@ export default function Home() {
   const [registryMessage, setRegistryMessage] = useState("Not recorded");
   const [registryReceipt, setRegistryReceipt] =
     useState<RegistryRecordReceipt | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [providerModels, setProviderModels] = useState<string[]>([]);
+  const [isLoadingProviderModels, setIsLoadingProviderModels] = useState(false);
+  const [providerModelMessage, setProviderModelMessage] = useState("");
+  const { runtimeConfig, updateRuntimeConfig, resetRuntimeConfig } =
+    useRuntimeConfig();
 
   const hasSource = sourceText.trim().length > 0;
   const registryContractAddress =
-    registryReceipt?.contractAddress || readConfiguredRegistryAddress();
+    registryReceipt?.contractAddress || runtimeConfig.registryAddress.trim();
   const reportJson = useMemo(() => {
     if (!generatedReport) {
       return "";
@@ -115,35 +131,22 @@ export default function Home() {
     setErrorMessage("");
 
     try {
-      // Data flow: the browser reads the local file, then sends only title,
-      // source text, and instruction to the server route. API keys stay server-side.
-      const response = await fetch("/api/generate-report", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          title: fileName.replace(/\.(txt|md)$/i, "") || "ProofNote report",
-          sourceText,
-          instruction
-        })
-      });
-      const payload = (await response.json().catch(() => null)) as unknown;
+      const report = await generateReportInBrowser({
+        title: fileName.replace(/\.(txt|md)$/i, "") || "ProofNote report",
+        sourceText,
+        instruction
+      }, runtimeConfig);
 
-      if (!response.ok) {
-        throw new Error(readApiError(payload));
-      }
-
-      if (!isGeneratedReport(payload)) {
-        throw new Error("The API returned an invalid report schema.");
-      }
-
-      setGeneratedReport(payload);
+      setGeneratedReport(report);
       setStorageReceipt(null);
       setStorageMessage("Ready to upload");
       setRegistryReceipt(null);
       setRegistryMessage("Not recorded");
-      setStatusMessage("Report generated");
+      setStatusMessage(
+        runtimeConfig.openAiApiKey.trim()
+          ? "Report generated"
+          : "Mock report generated"
+      );
     } catch (error) {
       setGeneratedReport(null);
       setStorageReceipt(null);
@@ -155,9 +158,82 @@ export default function Home() {
     }
   }
 
+  async function handleUseConnectedWallet() {
+    setErrorMessage("");
+
+    try {
+      if (typeof window === "undefined" || !window.ethereum) {
+        throw new Error("Install a wallet such as MetaMask first.");
+      }
+
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts"
+      });
+
+      if (!Array.isArray(accounts) || typeof accounts[0] !== "string") {
+        throw new Error("No wallet account was returned.");
+      }
+
+      updateRuntimeConfig({ expectedWalletAddress: accounts[0] });
+      setStatusMessage("Wallet configured");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    }
+  }
+
+  async function handleLoadProviderModels() {
+    setIsLoadingProviderModels(true);
+    setProviderModelMessage("");
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/provider-models", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          apiKey: runtimeConfig.openAiApiKey,
+          baseUrl: runtimeConfig.openAiBaseUrl
+        })
+      });
+      const responseBody = (await response.json().catch(() => null)) as unknown;
+
+      if (!response.ok) {
+        throw new Error(readApiError(responseBody, response.status));
+      }
+
+      if (!isProviderModelsResponse(responseBody)) {
+        throw new Error("Provider /models returned an invalid response.");
+      }
+
+      setProviderModels(responseBody.models);
+      setProviderModelMessage(`${responseBody.models.length} models loaded`);
+
+      if (
+        responseBody.models.length > 0 &&
+        !responseBody.models.includes(runtimeConfig.openAiModel)
+      ) {
+        updateRuntimeConfig({ openAiModel: responseBody.models[0] });
+      }
+    } catch (error) {
+      setProviderModels([]);
+      setProviderModelMessage(getErrorMessage(error));
+    } finally {
+      setIsLoadingProviderModels(false);
+    }
+  }
+
   async function handleUploadToStorage() {
     if (!generatedReport) {
       setErrorMessage("Generate a report before uploading to 0G Storage.");
+      return;
+    }
+
+    if (!runtimeConfig.registryAddress.trim()) {
+      setErrorMessage(
+        "Enter the ProofNoteRegistry contract address before uploading and recording."
+      );
       return;
     }
 
@@ -177,6 +253,7 @@ export default function Home() {
         title: generatedReport.title || fileName || "ProofNote report",
         sourceText,
         report: generatedReport,
+        expectedWalletAddress: runtimeConfig.expectedWalletAddress,
         onProgress: (progress) => setStorageMessage(progress.message)
       });
 
@@ -192,7 +269,9 @@ export default function Home() {
         title: generatedReport.title,
         sourceRootHash: receipt.sourceRootHash,
         reportRootHash: receipt.reportRootHash,
-        metadataRootHash: receipt.reportRootHash
+        metadataRootHash: receipt.reportRootHash,
+        contractAddress: runtimeConfig.registryAddress,
+        expectedWalletAddress: runtimeConfig.expectedWalletAddress
       });
 
       setRegistryReceipt(onChainReceipt);
@@ -235,7 +314,21 @@ export default function Home() {
         </header>
 
         <section className="grid gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
-          <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="space-y-5">
+            <RuntimeSettings
+              config={runtimeConfig}
+              showApiKey={showApiKey}
+              onChange={updateRuntimeConfig}
+              onClear={resetRuntimeConfig}
+              onToggleApiKey={() => setShowApiKey((value) => !value)}
+              onUseConnectedWallet={handleUseConnectedWallet}
+              onLoadProviderModels={handleLoadProviderModels}
+              providerModels={providerModels}
+              isLoadingProviderModels={isLoadingProviderModels}
+              providerModelMessage={providerModelMessage}
+            />
+
+            <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <Upload className="h-5 w-5 text-blue-700" aria-hidden="true" />
               <h2 className="text-lg font-semibold">Input</h2>
@@ -292,7 +385,8 @@ export default function Home() {
                 {sourcePreview || "No source loaded yet."}
               </pre>
             </div>
-          </aside>
+            </aside>
+          </div>
 
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
             <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -394,9 +488,19 @@ export default function Home() {
                       href={buildExplorerTxUrl(storageReceipt.sourceTxHash)}
                     />
                     <ProofField
+                      label="Source storage sequence"
+                      value={storageReceipt.sourceTxSeq.toString()}
+                      href={buildStorageSubmissionUrl(storageReceipt.sourceTxSeq)}
+                    />
+                    <ProofField
                       label="Report tx hash"
                       value={storageReceipt.reportTxHash}
                       href={buildExplorerTxUrl(storageReceipt.reportTxHash)}
+                    />
+                    <ProofField
+                      label="Report storage sequence"
+                      value={storageReceipt.reportTxSeq.toString()}
+                      href={buildStorageSubmissionUrl(storageReceipt.reportTxSeq)}
                     />
                   </div>
                 ) : null}
@@ -446,6 +550,211 @@ export default function Home() {
         </section>
       </div>
     </main>
+  );
+}
+
+function RuntimeSettings({
+  config,
+  showApiKey,
+  onChange,
+  onClear,
+  onToggleApiKey,
+  onUseConnectedWallet,
+  onLoadProviderModels,
+  providerModels,
+  isLoadingProviderModels,
+  providerModelMessage
+}: {
+  config: RuntimeConfig;
+  showApiKey: boolean;
+  onChange: (patch: Partial<RuntimeConfig>) => void;
+  onClear: () => void;
+  onToggleApiKey: () => void;
+  onUseConnectedWallet: () => void;
+  onLoadProviderModels: () => void;
+  providerModels: string[];
+  isLoadingProviderModels: boolean;
+  providerModelMessage: string;
+}) {
+  const walletAddressInvalid =
+    config.expectedWalletAddress.trim().length > 0 &&
+    !isEvmAddressLike(config.expectedWalletAddress);
+  const registryAddressInvalid =
+    config.registryAddress.trim().length > 0 &&
+    !isEvmAddressLike(config.registryAddress);
+
+  return (
+    <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Settings className="h-5 w-5 text-slate-700" aria-hidden="true" />
+          <h2 className="text-lg font-semibold">Runtime Settings</h2>
+        </div>
+        <button
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-300 hover:text-red-700"
+          type="button"
+          onClick={onClear}
+          aria-label="Clear runtime settings"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        <label className="block text-sm font-semibold text-slate-800">
+          OpenAI-compatible base URL
+          <input
+            className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4"
+            value={config.openAiBaseUrl}
+            onChange={(event) =>
+              onChange({ openAiBaseUrl: event.target.value })
+            }
+            placeholder="https://api.openai.com/v1"
+            spellCheck={false}
+          />
+        </label>
+
+        <label className="block text-sm font-semibold text-slate-800">
+          Model
+          <div className="mt-2 flex gap-2">
+            {providerModels.length > 0 ? (
+              <select
+                className="h-11 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4"
+                value={config.openAiModel}
+                onChange={(event) =>
+                  onChange({ openAiModel: event.target.value })
+                }
+              >
+                {providerModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="h-11 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4"
+                value={config.openAiModel}
+                onChange={(event) =>
+                  onChange({ openAiModel: event.target.value })
+                }
+                placeholder="gpt-5.4-mini"
+                spellCheck={false}
+              />
+            )}
+            <button
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:text-slate-300"
+              type="button"
+              onClick={onLoadProviderModels}
+              disabled={isLoadingProviderModels}
+              aria-label="Load provider models"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isLoadingProviderModels ? "animate-spin" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+          {providerModelMessage ? (
+            <span className="mt-2 block text-xs text-slate-500">
+              {providerModelMessage}
+            </span>
+          ) : null}
+        </label>
+
+        <label className="block text-sm font-semibold text-slate-800">
+          API key
+          <div className="mt-2 flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <KeyRound
+                className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400"
+                aria-hidden="true"
+              />
+              <input
+                className="h-11 w-full rounded-md border border-slate-300 bg-white px-9 text-sm outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4"
+                type={showApiKey ? "text" : "password"}
+                value={config.openAiApiKey}
+                onChange={(event) =>
+                  onChange({ openAiApiKey: event.target.value })
+                }
+                placeholder="Stored in this tab"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <button
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-blue-600 hover:text-blue-700"
+              type="button"
+              onClick={onToggleApiKey}
+              aria-label={showApiKey ? "Hide API key" : "Show API key"}
+            >
+              {showApiKey ? (
+                <EyeOff className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Eye className="h-4 w-4" aria-hidden="true" />
+              )}
+            </button>
+          </div>
+        </label>
+
+        <p className="rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+          API settings are stored only in this browser tab and sent to the local
+          Next.js API route for the current generation request.
+        </p>
+
+        <label className="block text-sm font-semibold text-slate-800">
+          Expected wallet address
+          <div className="mt-2 flex gap-2">
+            <input
+              className={`h-11 min-w-0 flex-1 rounded-md border bg-white px-3 font-mono text-xs outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4 ${
+                walletAddressInvalid ? "border-red-300" : "border-slate-300"
+              }`}
+              value={config.expectedWalletAddress}
+              onChange={(event) =>
+                onChange({ expectedWalletAddress: event.target.value })
+              }
+              placeholder="0x..."
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-blue-600 hover:text-blue-700"
+              type="button"
+              onClick={onUseConnectedWallet}
+              aria-label="Use connected wallet"
+            >
+              <Wallet className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+          {walletAddressInvalid ? (
+            <span className="mt-2 block text-xs text-red-600">
+              Enter a valid 0x EVM address.
+            </span>
+          ) : null}
+        </label>
+
+        <label className="block text-sm font-semibold text-slate-800">
+          Registry contract address
+          <input
+            className={`mt-2 h-11 w-full rounded-md border bg-white px-3 font-mono text-xs outline-none ring-blue-200 transition focus:border-blue-600 focus:ring-4 ${
+              registryAddressInvalid ? "border-red-300" : "border-slate-300"
+            }`}
+            value={config.registryAddress}
+            onChange={(event) =>
+              onChange({ registryAddress: event.target.value })
+            }
+            placeholder="0x..."
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {registryAddressInvalid ? (
+            <span className="mt-2 block text-xs text-red-600">
+              Enter a valid 0x contract address.
+            </span>
+          ) : null}
+        </label>
+      </div>
+    </aside>
   );
 }
 
@@ -516,23 +825,33 @@ function ProofField({
   );
 }
 
-function readApiError(payload: unknown) {
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    "error" in payload &&
-    typeof payload.error === "string"
-  ) {
-    return payload.error;
-  }
-
-  return "Report generation failed.";
-}
-
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
     return error.message;
   }
 
   return "Report generation failed.";
+}
+
+function readApiError(responseBody: unknown, status: number) {
+  if (
+    typeof responseBody === "object" &&
+    responseBody !== null &&
+    "error" in responseBody &&
+    typeof responseBody.error === "string"
+  ) {
+    return responseBody.error;
+  }
+
+  return `Request failed with status ${status}.`;
+}
+
+function isProviderModelsResponse(value: unknown): value is { models: string[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "models" in value &&
+    Array.isArray(value.models) &&
+    value.models.every((model) => typeof model === "string")
+  );
 }

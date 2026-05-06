@@ -27,9 +27,11 @@ The MVP focuses on verifiable persistence and traceability. It does not introduc
 flowchart TD
   User[User Browser] --> Upload[Upload .txt or .md source]
   Upload --> Web[Next.js Web App]
+  User --> Runtime[Runtime Settings in sessionStorage]
+  Runtime --> Web
   Web --> Api[POST /api/generate-report]
-  Api --> OpenAI[OpenAI API]
-  Api --> Mock[Mock fallback when OPENAI_API_KEY is missing]
+  Api --> OpenAI[OpenAI-compatible Responses API]
+  Api --> Mock[Mock fallback when API key is missing]
   OpenAI --> Report[Structured Report JSON]
   Mock --> Report
   Report --> StorageClient[0G Storage SDK in Browser]
@@ -58,14 +60,16 @@ flowchart TD
 - Hardhat
 - ethers
 - 0G TypeScript SDK
-- OpenAI API with local mock fallback
+- Request-scoped OpenAI-compatible API proxy with Responses and Chat Completions fallback
 
 ## Project Structure
 
 ```text
 apps/web/                               Next.js app
-apps/web/app/api/generate-report/       Server-side report generation route
+apps/web/app/api/generate-report/       Request-scoped report generation route
 apps/web/app/verify/                    On-chain report verification page
+apps/web/lib/reportGenerator.ts         Frontend report generation client
+apps/web/lib/runtimeConfig.ts           Browser session runtime config
 apps/web/lib/og/storage.ts              0G Storage upload abstraction
 apps/web/lib/og/registry.ts             0G Chain registry interaction abstraction
 apps/web/lib/contracts/                 Frontend ABI exports
@@ -106,14 +110,13 @@ cp .env.example .env
 Configure the web app in `apps/web/.env.local`:
 
 ```bash
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5.4-mini
 NEXT_PUBLIC_OG_CHAIN_ID=16602
 NEXT_PUBLIC_OG_RPC_URL=https://evmrpc-testnet.0g.ai
 NEXT_PUBLIC_OG_STORAGE_INDEXER_URL=https://indexer-storage-testnet-turbo.0g.ai
+NEXT_PUBLIC_OG_FLOW_ADDRESS=0x22e03a6a89b950f1c82ec5e74f8eca321a105296
 NEXT_PUBLIC_OG_EXPLORER_URL=https://chainscan-galileo.0g.ai
-NEXT_PUBLIC_OG_STORAGE_EXPLORER_URL=
-NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS=
+NEXT_PUBLIC_OG_STORAGE_EXPLORER_URL=https://storagescan-galileo.0g.ai
+NEXT_PUBLIC_OG_STORAGE_GAS_LIMIT=500000
 ```
 
 Run the app:
@@ -152,26 +155,21 @@ Deploy `ProofNoteRegistry` to 0G Chain:
 pnpm deploy:og
 ```
 
-Copy the printed contract address into `apps/web/.env.local`:
-
-```bash
-NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS=0x...
-```
-
-Restart `pnpm dev` after changing public environment variables.
+Copy the printed contract address into the app's `Runtime Settings` panel.
 
 ## Demo Flow
 
 1. Open the app at `http://localhost:3000`.
-2. Upload a `.txt` or `.md` source document.
-3. Enter a report instruction.
-4. Generate a structured report JSON.
-5. Connect a wallet with 0G Galileo testnet A0GI.
-6. Click `Upload and record proof`.
-7. Confirm 0G Storage upload transactions in the wallet.
-8. Confirm the `recordReport()` transaction.
-9. Copy the report ID or transaction details.
-10. Open `/verify`, enter the report ID, and inspect the on-chain proof record.
+2. Enter `Runtime Settings`: OpenAI-compatible base URL, model, API key, expected wallet address, and registry contract address. Use the refresh button beside `Model` to load provider model IDs from `/models`.
+3. Upload a `.txt` or `.md` source document.
+4. Enter a report instruction.
+5. Generate a structured report JSON.
+6. Connect a wallet with 0G Galileo testnet 0G.
+7. Click `Upload and record proof`.
+8. Confirm 0G Storage upload transactions in the wallet.
+9. Confirm the `recordReport()` transaction.
+10. Copy the report ID or transaction details.
+11. Open `/verify`, enter the registry contract address and report ID, then inspect the on-chain proof record.
 
 ## Smart Contract
 
@@ -230,12 +228,23 @@ The `/verify` page reads `ProofNoteRegistry.getReport(id)` from the configured c
 
 - Only `.txt` and `.md` source files are supported.
 - No PDF, image, or rich document parsing yet.
-- The report generator uses OpenAI when configured and a mock fallback otherwise.
+- The report generator sends request-scoped provider settings to the local API route and falls back to a mock report when no API key is entered.
+- Runtime API keys are not written to `.env`, committed to the repo, or stored by the server.
 - The MVP does not download and compare 0G Storage file contents on the verify page yet.
 - Large 0G Storage uploads that fragment into multiple roots are not displayed as multi-root proofs yet.
 - `metadataRootHash` currently reuses the report root until a dedicated metadata artifact is added.
 - No database, user accounts, payments, tokens, NFTs, or access control.
-- Browser wallet and testnet A0GI are required for real storage and registry transactions.
+- Browser wallet and testnet 0G are required for real storage and registry transactions.
+
+## Troubleshooting
+
+- `could not decode result data ... market()` means the wallet RPC returned empty data for the 0G Storage Flow contract. In MetaMask, edit the `0G-Testnet-Galileo` network RPC URL to `https://evmrpc-testnet.0g.ai`, confirm chain ID `16602`, and make sure the domain uses the digit `0` in `0g.ai`, not the letter `O`.
+- If MetaMask warns that the native token symbol does not match, use `0G` for Galileo. `A0GI` was used by older 0G testnet references and should not be used for `Chain ID 16602`.
+- If MetaMask reports `insufficient funds` while the 0G balance is visible, keep `NEXT_PUBLIC_OG_STORAGE_GAS_LIMIT=500000` so the wallet does not re-estimate the 0G Storage transaction against a stale RPC view.
+- If storage upload still fails, check `NEXT_PUBLIC_OG_STORAGE_INDEXER_URL=https://indexer-storage-testnet-turbo.0g.ai` and `NEXT_PUBLIC_OG_FLOW_ADDRESS=0x22e03a6a89b950f1c82ec5e74f8eca321a105296`.
+- If report generation fails with provider errors, check the Runtime Settings base URL, model, and API key. The app tries `/responses` first, then falls back to `/chat/completions` when the provider does not support Responses.
+- If the provider says `Not supported model`, load models with the refresh button beside `Model` and select an exact returned model ID.
+- API keys and wallet addresses are entered in the web UI and stored only in browser `sessionStorage`; the API key is used only for the current local API route request.
 
 ## Useful Commands
 

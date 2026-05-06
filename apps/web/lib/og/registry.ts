@@ -1,11 +1,16 @@
 import type { Eip1193Provider } from "ethers";
 import { proofNoteRegistryAbi } from "../contracts/proofNoteRegistryAbi";
+import { assertExpectedSignerAddress } from "./wallet";
 
+const defaultOgRpcUrl = "https://evmrpc-testnet.0g.ai";
+const defaultOgExplorerUrl = "https://chainscan-galileo.0g.ai";
 export type RecordReportInput = {
   title: string;
   sourceRootHash: string;
   reportRootHash: string;
   metadataRootHash: string;
+  contractAddress: string;
+  expectedWalletAddress?: string;
 };
 
 export type RegistryRecordReceipt = {
@@ -64,18 +69,27 @@ export async function recordReportOnChain({
   title,
   sourceRootHash,
   reportRootHash,
-  metadataRootHash
+  metadataRootHash,
+  contractAddress,
+  expectedWalletAddress
 }: RecordReportInput): Promise<RegistryRecordReceipt> {
   const ethereum = getInjectedEthereum();
-  const { BrowserProvider, Contract, isAddress } = await import("ethers");
-  const contractAddress = readRegistryAddress(isAddress);
+  const { BrowserProvider, Contract, getAddress, isAddress } = await import("ethers");
+  const registryAddress = readRegistryAddress(isAddress, contractAddress);
 
   await ethereum.request({ method: "eth_requestAccounts" });
 
   const browserProvider = new BrowserProvider(ethereum);
   const signer = await browserProvider.getSigner();
+  await assertExpectedSignerAddress({
+    signer,
+    expectedWalletAddress,
+    getAddress,
+    isAddress
+  });
+
   const registry = new Contract(
-    contractAddress,
+    registryAddress,
     proofNoteRegistryAbi,
     signer
   ) as unknown as ProofNoteRegistryContract;
@@ -92,7 +106,7 @@ export async function recordReportOnChain({
     return {
       transactionHash:
         receipt?.hash ?? receipt?.transactionHash ?? transaction.hash,
-      contractAddress
+      contractAddress: registryAddress
     };
   } catch (error) {
     if (isRejectedWalletAction(error)) {
@@ -105,17 +119,16 @@ export async function recordReportOnChain({
   }
 }
 
-export function readConfiguredRegistryAddress() {
-  return process.env.NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS?.trim() ?? "";
-}
-
-export async function getReportFromChain(id: bigint): Promise<RegistryReport> {
+export async function getReportFromChain(
+  id: bigint,
+  contractAddress: string
+): Promise<RegistryReport> {
   const { Contract, JsonRpcProvider, isAddress } = await import("ethers");
-  const contractAddress = readRegistryAddress(isAddress);
+  const registryAddress = readRegistryAddress(isAddress, contractAddress);
   const rpcUrl = readConfiguredRpcUrl();
   const provider = new JsonRpcProvider(rpcUrl);
   const registry = new Contract(
-    contractAddress,
+    registryAddress,
     proofNoteRegistryAbi,
     provider
   ) as unknown as ProofNoteRegistryContract;
@@ -128,56 +141,33 @@ export async function getReportFromChain(id: bigint): Promise<RegistryReport> {
 }
 
 export function buildExplorerAddressUrl(address: string) {
-  const explorerUrl = process.env.NEXT_PUBLIC_OG_EXPLORER_URL?.trim();
-
-  if (!explorerUrl) {
-    return "";
-  }
+  const explorerUrl =
+    process.env.NEXT_PUBLIC_OG_EXPLORER_URL?.trim() || defaultOgExplorerUrl;
 
   return `${explorerUrl.replace(/\/$/, "")}/address/${address}`;
 }
 
-export function buildStorageRootUrl(rootHash: string) {
-  const storageExplorerUrl =
-    process.env.NEXT_PUBLIC_OG_STORAGE_EXPLORER_URL?.trim();
-
-  if (!storageExplorerUrl) {
-    return "";
-  }
-
-  const normalizedUrl = storageExplorerUrl.replace(/\/$/, "");
-
-  if (/\/(file|root|object|hash)$/i.test(normalizedUrl)) {
-    return `${normalizedUrl}/${rootHash}`;
-  }
-
-  return `${normalizedUrl}/file/${rootHash}`;
-}
-
-function readRegistryAddress(isAddress: (value: string) => boolean) {
-  const contractAddress = readConfiguredRegistryAddress();
+function readRegistryAddress(
+  isAddress: (value: string) => boolean,
+  configuredAddress: string
+) {
+  const contractAddress = configuredAddress.trim();
 
   if (!contractAddress) {
     throw new Error(
-      "Set NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS before recording reports on chain."
+      "Enter the ProofNoteRegistry contract address in Runtime Settings before using on-chain records."
     );
   }
 
   if (!isAddress(contractAddress)) {
-    throw new Error("NEXT_PUBLIC_PROOFNOTE_REGISTRY_ADDRESS is not valid.");
+    throw new Error("ProofNoteRegistry contract address is not a valid EVM address.");
   }
 
   return contractAddress;
 }
 
 function readConfiguredRpcUrl() {
-  const rpcUrl = process.env.NEXT_PUBLIC_OG_RPC_URL?.trim();
-
-  if (!rpcUrl) {
-    throw new Error("Set NEXT_PUBLIC_OG_RPC_URL before verifying reports.");
-  }
-
-  return rpcUrl;
+  return process.env.NEXT_PUBLIC_OG_RPC_URL?.trim() || defaultOgRpcUrl;
 }
 
 function normalizeRegistryReport(
