@@ -5,6 +5,7 @@ import type {
   TransactionRequest
 } from "ethers";
 import type { GeneratedReport } from "../report";
+import { stripSupportedSourceExtension } from "../sourceFiles";
 import { assertExpectedSignerAddress } from "./wallet";
 
 type UploadStage = "wallet" | "source" | "report";
@@ -602,9 +603,8 @@ async function loadZgStorageBrowserModule() {
 }
 
 function sanitizeFileName(value: string) {
-  const sanitizedValue = value
+  const sanitizedValue = stripSupportedSourceExtension(value)
     .trim()
-    .replace(/\.(txt|md)$/i, "")
     .replace(/[^a-z0-9._-]+/gi, "-")
     .replace(/^-+|-+$/g, "");
 

@@ -18,6 +18,12 @@ import {
 } from "../../lib/og/registry";
 import { computeSourceRootHash } from "../../lib/og/storage";
 import { isEvmAddressLike } from "../../lib/runtimeConfig";
+import {
+  isSupportedSourceFile,
+  stripSupportedSourceExtension,
+  supportedSourceAccept,
+  supportedSourceLabel
+} from "../../lib/sourceFiles";
 import { useRuntimeConfig } from "../../lib/useRuntimeConfig";
 
 type SourceCheckStatus = "idle" | "computing" | "match" | "mismatch";
@@ -108,10 +114,10 @@ export default function VerifyPage() {
       return;
     }
 
-    if (!/\.(txt|md)$/i.test(selectedFile.name)) {
+    if (!isSupportedSourceFile(selectedFile)) {
       event.target.value = "";
       resetSourceCheck("Upload the original source file to compare its 0G root hash.");
-      setSourceCheckError("Choose a .txt or .md source file.");
+      setSourceCheckError(`Choose a supported text document: ${supportedSourceLabel}.`);
       return;
     }
 
@@ -124,7 +130,7 @@ export default function VerifyPage() {
       const sourceText = await selectedFile.text();
       const rootHash = await computeSourceRootHash({
         sourceText,
-        title: selectedFile.name.replace(/\.(txt|md)$/i, "")
+        title: stripSupportedSourceExtension(selectedFile.name)
       });
       const isMatch =
         normalizeRootHash(rootHash) === normalizeRootHash(report.sourceRootHash);
@@ -340,7 +346,7 @@ export default function VerifyPage() {
                   <input
                     className="sr-only"
                     type="file"
-                    accept=".txt,.md,text/plain,text/markdown"
+                    accept={supportedSourceAccept}
                     disabled={!report || sourceCheckStatus === "computing"}
                     onChange={handleSourceFileChange}
                   />

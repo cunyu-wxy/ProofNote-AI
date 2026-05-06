@@ -9,7 +9,7 @@ Users upload a source document. The app generates an AI report, uploads both the
 ## MVP User Flow
 
 1. User connects wallet.
-2. User uploads a .txt or .md file.
+2. User uploads a text-based source document.
 3. User enters a report instruction.
 4. App generates a structured AI report.
 5. App uploads the source file to 0G Storage.
@@ -75,7 +75,7 @@ Events:
 
 - App runs with `pnpm dev`.
 - Contract compiles with `pnpm hardhat compile`.
-- User can upload a .txt or .md file.
+- User can upload a text-readable source file.
 - User can generate a report.
 - User can upload source and report to 0G Storage.
 - User can record hashes on 0G Chain.

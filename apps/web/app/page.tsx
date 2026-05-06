@@ -23,6 +23,12 @@ import {
 import { generateReportInBrowser } from "../lib/reportGenerator";
 import { GeneratedReport, RiskLevel } from "../lib/report";
 import { RuntimeConfig, isEvmAddressLike } from "../lib/runtimeConfig";
+import {
+  isSupportedSourceFile,
+  stripSupportedSourceExtension,
+  supportedSourceAccept,
+  supportedSourceLabel
+} from "../lib/sourceFiles";
 import { useRuntimeConfig } from "../lib/useRuntimeConfig";
 import {
   buildExplorerTxUrl,
@@ -90,7 +96,7 @@ export default function Home() {
       return;
     }
 
-    if (!/\.(txt|md)$/i.test(selectedFile.name)) {
+    if (!isSupportedSourceFile(selectedFile)) {
       setFileName("");
       setSourceText("");
       setGeneratedReport(null);
@@ -99,7 +105,7 @@ export default function Home() {
       setRegistryReceipt(null);
       setRegistryMessage("Not recorded");
       setStatusMessage("Unsupported file");
-      setErrorMessage("Please upload a .txt or .md file.");
+      setErrorMessage(`Please upload a supported text document: ${supportedSourceLabel}.`);
       event.target.value = "";
       return;
     }
@@ -118,7 +124,7 @@ export default function Home() {
   async function handleGenerateReport() {
     if (!hasSource) {
       setStatusMessage("Upload required");
-      setErrorMessage("Upload a .txt or .md source file before generating.");
+      setErrorMessage("Upload a supported source document before generating.");
       return;
     }
 
@@ -132,7 +138,7 @@ export default function Home() {
 
     try {
       const report = await generateReportInBrowser({
-        title: fileName.replace(/\.(txt|md)$/i, "") || "ProofNote report",
+        title: stripSupportedSourceExtension(fileName) || "ProofNote report",
         sourceText,
         instruction
       }, runtimeConfig);
@@ -337,15 +343,15 @@ export default function Home() {
             <label className="mt-5 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 text-center transition hover:border-blue-600 hover:bg-blue-50">
               <FileText className="h-8 w-8 text-slate-500" aria-hidden="true" />
               <span className="mt-3 text-sm font-semibold text-slate-800">
-                {fileName || "Choose a .txt or .md file"}
+                {fileName || "Choose a source document"}
               </span>
               <span className="mt-1 text-xs text-slate-500">
-                File content is read in your browser.
+                Supported: {supportedSourceLabel}
               </span>
               <input
                 className="sr-only"
                 type="file"
-                accept=".txt,.md,text/plain,text/markdown"
+                accept={supportedSourceAccept}
                 onChange={handleFileChange}
               />
             </label>
