@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ExternalLink,
   FileSearch,
+  Upload,
   ShieldCheck
 } from "lucide-react";
 import {
@@ -15,8 +16,11 @@ import {
   getReportFromChain,
   RegistryReport
 } from "../../lib/og/registry";
+import { computeSourceRootHash } from "../../lib/og/storage";
 import { isEvmAddressLike } from "../../lib/runtimeConfig";
 import { useRuntimeConfig } from "../../lib/useRuntimeConfig";
+
+type SourceCheckStatus = "idle" | "computing" | "match" | "mismatch";
 
 export default function VerifyPage() {
   const [reportId, setReportId] = useState("");
@@ -24,6 +28,14 @@ export default function VerifyPage() {
   const [statusMessage, setStatusMessage] = useState("Ready");
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [sourceCheckStatus, setSourceCheckStatus] =
+    useState<SourceCheckStatus>("idle");
+  const [sourceCheckFileName, setSourceCheckFileName] = useState("");
+  const [computedSourceRootHash, setComputedSourceRootHash] = useState("");
+  const [sourceCheckMessage, setSourceCheckMessage] = useState(
+    "Load a registry record first."
+  );
+  const [sourceCheckError, setSourceCheckError] = useState("");
   const { runtimeConfig, updateRuntimeConfig } = useRuntimeConfig();
   const contractAddress = runtimeConfig.registryAddress.trim();
   const contractAddressInvalid =
@@ -45,6 +57,7 @@ export default function VerifyPage() {
       setReport(null);
       setStatusMessage("Invalid report ID");
       setErrorMessage("Report ID must be a non-negative whole number.");
+      resetSourceCheck("Load a registry record first.");
       return;
     }
 
@@ -52,6 +65,7 @@ export default function VerifyPage() {
       setReport(null);
       setStatusMessage("Missing contract");
       setErrorMessage("Enter the ProofNoteRegistry contract address first.");
+      resetSourceCheck("Load a registry record first.");
       return;
     }
 
@@ -59,6 +73,7 @@ export default function VerifyPage() {
     setReport(null);
     setStatusMessage("Reading registry");
     setErrorMessage("");
+    resetSourceCheck("Load a registry record first.");
 
     try {
       const registryReport = await getReportFromChain(
@@ -67,12 +82,76 @@ export default function VerifyPage() {
       );
       setReport(registryReport);
       setStatusMessage("Report found");
+      resetSourceCheck("Upload the original source file to compare its 0G root hash.");
     } catch (error) {
       setStatusMessage("Verification failed");
       setErrorMessage(getErrorMessage(error));
+      resetSourceCheck("Load a registry record first.");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleSourceFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+
+    setSourceCheckError("");
+
+    if (!selectedFile) {
+      return;
+    }
+
+    if (!report) {
+      event.target.value = "";
+      resetSourceCheck("Load a registry record first.");
+      setSourceCheckError("Read a report ID before checking a source file.");
+      return;
+    }
+
+    if (!/\.(txt|md)$/i.test(selectedFile.name)) {
+      event.target.value = "";
+      resetSourceCheck("Upload the original source file to compare its 0G root hash.");
+      setSourceCheckError("Choose a .txt or .md source file.");
+      return;
+    }
+
+    setSourceCheckStatus("computing");
+    setSourceCheckFileName(selectedFile.name);
+    setComputedSourceRootHash("");
+    setSourceCheckMessage("Computing 0G root hash with the same SDK path.");
+
+    try {
+      const sourceText = await selectedFile.text();
+      const rootHash = await computeSourceRootHash({
+        sourceText,
+        title: selectedFile.name.replace(/\.(txt|md)$/i, "")
+      });
+      const isMatch =
+        normalizeRootHash(rootHash) === normalizeRootHash(report.sourceRootHash);
+
+      setComputedSourceRootHash(rootHash);
+      setSourceCheckStatus(isMatch ? "match" : "mismatch");
+      setSourceCheckMessage(
+        isMatch
+          ? "The selected file matches the on-chain source root hash."
+          : "The selected file does not match the on-chain source root hash."
+      );
+    } catch (error) {
+      setSourceCheckStatus("idle");
+      setComputedSourceRootHash("");
+      setSourceCheckMessage("Upload the original source file to compare its 0G root hash.");
+      setSourceCheckError(getErrorMessage(error));
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function resetSourceCheck(message: string) {
+    setSourceCheckStatus("idle");
+    setSourceCheckFileName("");
+    setComputedSourceRootHash("");
+    setSourceCheckMessage(message);
+    setSourceCheckError("");
   }
 
   return (
@@ -238,6 +317,64 @@ export default function VerifyPage() {
                   />
                 </div>
               ) : null}
+
+              <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-900">
+                  Source file check
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  {sourceCheckMessage}
+                </p>
+
+                <label
+                  className={`mt-4 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                    report && sourceCheckStatus !== "computing"
+                      ? "border-blue-200 bg-white text-blue-700 hover:border-blue-600"
+                      : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                  {sourceCheckStatus === "computing"
+                    ? "Computing..."
+                    : "Choose source file"}
+                  <input
+                    className="sr-only"
+                    type="file"
+                    accept=".txt,.md,text/plain,text/markdown"
+                    disabled={!report || sourceCheckStatus === "computing"}
+                    onChange={handleSourceFileChange}
+                  />
+                </label>
+
+                {sourceCheckError ? (
+                  <div className="mt-3 flex gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    {sourceCheckError}
+                  </div>
+                ) : null}
+
+                {sourceCheckFileName ? (
+                  <div className="mt-3 space-y-2 text-sm">
+                    <p className="break-all text-slate-700">
+                      File:{" "}
+                      <span className="font-semibold text-slate-900">
+                        {sourceCheckFileName}
+                      </span>
+                    </p>
+                    {computedSourceRootHash ? (
+                      <p className="break-all font-mono text-xs leading-5 text-slate-700">
+                        {computedSourceRootHash}
+                      </p>
+                    ) : null}
+                    {sourceCheckStatus === "match" ? (
+                      <p className="font-semibold text-teal-700">Matched</p>
+                    ) : null}
+                    {sourceCheckStatus === "mismatch" ? (
+                      <p className="font-semibold text-red-700">Mismatch</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </aside>
           </section>
         </section>
@@ -332,6 +469,10 @@ function formatTimestamp(value: bigint) {
   }
 
   return `${new Date(timestampMs).toLocaleString()} (${value.toString()})`;
+}
+
+function normalizeRootHash(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function getErrorMessage(error: unknown) {

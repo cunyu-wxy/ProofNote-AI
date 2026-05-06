@@ -31,6 +31,11 @@ export type UploadProofNoteArtifactsInput = {
   onProgress?: (progress: StorageUploadProgress) => void;
 };
 
+export type ComputeSourceRootHashInput = {
+  sourceText: string;
+  title?: string;
+};
+
 type SdkMerkleTree = {
   rootHash: () => string;
 };
@@ -200,6 +205,18 @@ export async function uploadProofNoteArtifacts({
   };
 }
 
+export async function computeSourceRootHash({
+  sourceText,
+  title = "proofnote-source"
+}: ComputeSourceRootHashInput) {
+  const { Blob: ZgBlob } = await loadZgStorageBrowserModule();
+  const sourceFile = createTextFile(sourceText, `${sanitizeFileName(title)}.txt`, {
+    type: "text/plain;charset=utf-8"
+  });
+
+  return computeFileRootHash(new ZgBlob(sourceFile), "source");
+}
+
 export function buildExplorerTxUrl(txHash: string) {
   const explorerUrl = process.env.NEXT_PUBLIC_OG_EXPLORER_URL?.trim();
 
@@ -245,13 +262,7 @@ async function uploadArtifact({
 }): Promise<UploadArtifactResult> {
   onProgress?.({ stage: label, message: `Computing ${label} root hash` });
 
-  const [tree, treeError] = await file.merkleTree();
-
-  if (treeError || !tree) {
-    throw new Error(
-      `Failed to compute ${label} root hash: ${treeError?.message ?? "unknown error"}`
-    );
-  }
+  const rootHash = await computeFileRootHash(file, label);
 
   onProgress?.({ stage: label, message: `Uploading ${label} to 0G Storage` });
 
@@ -281,7 +292,19 @@ async function uploadArtifact({
     throw normalizeStorageSdkError(uploadError, label, config);
   }
 
-  return normalizeUploadResult(uploadResult, label, tree.rootHash());
+  return normalizeUploadResult(uploadResult, label, rootHash);
+}
+
+async function computeFileRootHash(file: SdkFile, label: "source" | "report") {
+  const [tree, treeError] = await file.merkleTree();
+
+  if (treeError || !tree) {
+    throw new Error(
+      `Failed to compute ${label} root hash: ${treeError?.message ?? "unknown error"}`
+    );
+  }
+
+  return tree.rootHash();
 }
 
 async function validateStorageNetwork({
