@@ -30,20 +30,20 @@ same 0G Storage root hash.
 
 ```mermaid
 flowchart TD
-  User[Browser User] --> Web[Next.js App]
-  Web --> Config[Runtime Settings<br/>sessionStorage only]
-  Web --> API[POST /api/generate-report]
-  API --> LLM[OpenAI-compatible Provider]
-  API --> Mock[Mock fallback]
-  LLM --> Report[Report JSON]
+  User["Browser User"] --> Web["Next.js App"]
+  Web --> Config["Runtime Settings / sessionStorage only"]
+  Web --> API["POST /api/generate-report"]
+  API --> LLM["OpenAI-compatible Provider"]
+  API --> Mock["Mock fallback"]
+  LLM --> Report["Report JSON"]
   Mock --> Report
-  Web --> SDK[0G Storage SDK<br/>browser]
-  SDK --> Storage[0G Storage]
-  Storage --> Roots[Source and Report Root Hashes]
-  Roots --> Wallet[Wallet Signature]
-  Wallet --> Contract[ProofNoteRegistry<br/>0G Chain]
-  Contract --> Verify[/verify Page]
-  Verify --> HashCheck[Recompute Source Root Hash]
+  Web --> SDK["0G Storage SDK / browser"]
+  SDK --> Storage["0G Storage"]
+  Storage --> Roots["Source and Report Root Hashes"]
+  Roots --> Wallet["Wallet Signature"]
+  Wallet --> Contract["ProofNoteRegistry / 0G Chain"]
+  Contract --> Verify["/verify Page"]
+  Verify --> HashCheck["Recompute Source Root Hash"]
 ```
 
 ## Core Implementation
