@@ -1,17 +1,17 @@
 # ProofNote AI
 
 ProofNote AI is a verifiable AI report generator for the 0G APAC Hackathon.
-It turns a text-based source document into a structured AI report, stores both
-artifacts on 0G Storage, and records their root hashes on 0G Chain.
+It turns a text-based source document into a structured AI report, uploads both
+artifacts to 0G Storage, and records their root hashes on 0G Chain.
 
-The project does not claim that an AI report is legally or factually correct.
-It proves that a specific source document and a specific report existed at a
-specific time, and that later changes can be detected by recomputing the same
-0G Storage root hash.
+ProofNote does not prove that an AI report is legally or factually correct. It
+proves that a specific source document and a specific report existed at a
+specific time, and that later source changes can be detected by recomputing the
+same 0G Storage root hash.
 
 ## Links
 
-- GitHub repo: TBD
+- GitHub repo: https://github.com/cunyu-wxy/ProofNote-AI
 - Demo video: TBD
 - 0G contract address: TBD
 - 0G Explorer transaction: TBD
@@ -24,7 +24,7 @@ specific time, and that later changes can be detected by recomputing the same
 3. Upload the source text and report JSON to 0G Storage.
 4. Write `sourceRootHash`, `reportRootHash`, and `metadataRootHash` to `ProofNoteRegistry`.
 5. Verify a report by reading `getReport(id)` from 0G Chain.
-6. Re-upload a local source file on `/verify` to recompute its 0G root hash and detect tampering.
+6. Upload a local source file on `/verify` to recompute its 0G root hash and detect tampering.
 
 ## Architecture
 
@@ -54,33 +54,131 @@ flowchart TD
 - `apps/web/app/api/provider-models/route.ts`: loads provider model IDs from an OpenAI-compatible `/models` endpoint.
 - `apps/web/lib/og/storage.ts`: 0G Storage abstraction for upload and root hash computation.
 - `apps/web/lib/og/registry.ts`: `recordReport()` and `getReport()` frontend contract calls.
+- `apps/web/lib/sourceFiles.ts`: supported source document extensions and MIME types.
 - `contracts/ProofNoteRegistry.sol`: minimal on-chain registry contract.
 - `scripts/deploy-proofnote-registry.js`: deployment script for 0G Galileo.
 
 ## 0G Usage
 
 - **0G Storage**: stores the original source text and generated report JSON.
-- **0G Storage root hash**: provides content integrity. If the source text changes, the recomputed root hash will not match the chain record.
+- **0G Storage root hash**: provides content integrity. If the source changes, the recomputed root hash will not match the chain record.
 - **0G Chain**: stores durable proof records in `ProofNoteRegistry`.
 - **0G Explorer / StorageScan**: provides transaction and storage submission links for demo verification.
 
-## Quick Deploy
+## Environment
 
-### 1. Install
+The app requires:
 
-```bash
-corepack enable
-corepack prepare pnpm@9.15.4 --activate
+- Git
+- Node.js LTS, Node 20 or newer
+- pnpm `9.15.4`
+- A browser wallet such as MetaMask for real 0G transactions
+
+Use the command block for your operating system. Each block installs Git,
+Node.js, pnpm, project dependencies, creates `apps/web/.env.local`, and starts
+the local app.
+
+### Windows 10/11 PowerShell
+
+Run PowerShell as a normal user:
+
+```powershell
+$ErrorActionPreference = "Stop"
+winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
+winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+
+$machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+$userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+$env:Path = "C:\Program Files\nodejs;C:\Program Files\Git\cmd;$machinePath;$userPath"
+
+node --version
+git --version
+
+if (Get-Command corepack -ErrorAction SilentlyContinue) {
+  corepack enable
+  corepack prepare pnpm@9.15.4 --activate
+}
+
+if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+  winget install -e --id pnpm.pnpm --accept-package-agreements --accept-source-agreements
+  $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+  $env:Path = "C:\Program Files\nodejs;C:\Program Files\Git\cmd;$machinePath;$userPath"
+}
+
+pnpm --version
+
+if (-not (Test-Path ProofNote-AI)) {
+  git clone https://github.com/cunyu-wxy/ProofNote-AI.git
+}
+
+Set-Location ProofNote-AI
+git pull
 pnpm install
+Copy-Item .env.example apps\web\.env.local -Force
+pnpm dev
 ```
 
-### 2. Configure Web App
+Open `http://localhost:3000`.
+
+If `node --version` still fails after `winget` finishes, close PowerShell and
+run the same block again. Some Windows installations do not expose newly
+installed PATH entries to the current terminal process.
+
+The Windows flow intentionally uses `corepack` first and `winget pnpm` as a
+fallback. It does not require `npm install -g pnpm`, so it avoids package
+manager shims that intercept `npm` before Node.js is active.
+
+### macOS Terminal
 
 ```bash
+if ! command -v brew >/dev/null 2>&1; then
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+if [ -x /opt/homebrew/bin/brew ]; then eval "$(/opt/homebrew/bin/brew shellenv)"; fi
+if [ -x /usr/local/bin/brew ]; then eval "$(/usr/local/bin/brew shellenv)"; fi
+brew install git node pnpm
+if [ ! -d ProofNote-AI ]; then git clone https://github.com/cunyu-wxy/ProofNote-AI.git; fi
+cd ProofNote-AI
+git pull
+pnpm --version
+pnpm install
 cp .env.example apps/web/.env.local
+pnpm dev
 ```
 
-Minimum 0G Galileo config:
+Open `http://localhost:3000`.
+
+### Linux Ubuntu/Debian
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg git
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+node --version
+git --version
+if command -v corepack >/dev/null 2>&1; then
+  sudo corepack enable
+  corepack prepare pnpm@9.15.4 --activate
+fi
+if ! command -v pnpm >/dev/null 2>&1; then
+  sudo npm install -g pnpm@9.15.4
+fi
+pnpm --version
+if [ ! -d ProofNote-AI ]; then git clone https://github.com/cunyu-wxy/ProofNote-AI.git; fi
+cd ProofNote-AI
+git pull
+pnpm install
+cp .env.example apps/web/.env.local
+pnpm dev
+```
+
+Open `http://localhost:3000`.
+
+## Web Configuration
+
+`apps/web/.env.local` is already created by the setup commands. It should keep
+the default 0G Galileo values:
 
 ```bash
 NEXT_PUBLIC_OG_CHAIN_ID=16602
@@ -93,27 +191,29 @@ NEXT_PUBLIC_OG_STORAGE_EXPLORER_URL=https://storagescan-galileo.0g.ai
 NEXT_PUBLIC_OG_STORAGE_GAS_LIMIT=500000
 ```
 
-API keys, model names, wallet address, and registry contract address are entered
-in the web UI at runtime. They are stored in browser `sessionStorage`; they are
-not committed to the repo.
+API keys, model names, expected wallet address, and registry contract address
+are entered in the web UI at runtime. They are stored in browser
+`sessionStorage`; they are not committed to the repo.
 
-### 3. Run Locally
+## Smart Contract Deployment
 
-```bash
-pnpm dev
+Create the root `.env` file.
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env -Force
+notepad .env
 ```
 
-Open `http://localhost:3000`.
-
-### 4. Deploy Contract
-
-Create root `.env`:
+macOS / Linux:
 
 ```bash
 cp .env.example .env
+nano .env
 ```
 
-Set deployment values:
+Set these deployment values:
 
 ```bash
 OG_CHAIN_ID=16602
@@ -121,7 +221,7 @@ OG_RPC_URL=https://evmrpc-testnet.0g.ai
 DEPLOYER_PRIVATE_KEY=0x...
 ```
 
-Compile and deploy:
+Then compile and deploy:
 
 ```bash
 pnpm hardhat compile
@@ -195,8 +295,7 @@ ProofNote verifies content integrity, not truthfulness:
 ## Known Limitations
 
 - Supports text-readable source files: `.txt`, `.md`, `.csv`, `.json`, `.yaml`, `.xml`, `.html`, `.rtf`, `.log`, and related text MIME types.
-- PDF and DOCX parsing are not included yet.
-- No PDF, image, or rich document parsing yet.
+- PDF, DOCX, images, and rich document parsing are not included yet.
 - `metadataRootHash` currently reuses the report root.
 - No database, user accounts, token gating, NFT minting, or payment flow.
 - Multi-root fragmented uploads are not displayed as a combined proof yet.
